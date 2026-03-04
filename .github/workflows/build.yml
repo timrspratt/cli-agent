@@ -1,0 +1,62 @@
+name: Build cli-agent
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    name: Build cli-agent
+    runs-on: ubuntu-24.04
+
+    strategy:
+      matrix:
+        goos: [linux]
+        goarch: [amd64, arm64]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.22'
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            /go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Get version from tag
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: go mod tidy
+
+      - name: Build for ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v -ldflags "-X main.version=${{ env.VERSION }}" -o dist/cli-agent-${{ matrix.goos }}-${{ matrix.goarch }} ./main.go
+
+      - name: Upload build artifact for ${{ matrix.goarch }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-agent-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ./dist/cli-agent-${{ matrix.goos }}-${{ matrix.goarch }}
+
+      - name: Upload release asset
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./dist/cli-agent-${{ matrix.goos }}-${{ matrix.goarch }}
+          asset_name: cli-agent-${{ matrix.goos }}-${{ matrix.goarch }}
+          asset_content_type: application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
