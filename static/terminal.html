@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Deploy Remote CLI Terminal</title>
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
+
+    <style>
+        html, body {
+            height:100%;
+            margin:0;
+            background:#000;
+        }
+
+        #terminal {
+            height:100%;
+            width:100%;
+        }
+    </style>
+</head>
+
+<body>
+
+<div id="terminal"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+
+<script>
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const token = urlParams.get("token");
+
+  if(!token){
+    alert("Missing token");
+  }
+
+  const term = new Terminal({
+    cursorBlink: true,
+    fontSize: 14,
+    fontFamily: "monospace",
+    theme: {
+      background: "#000000"
+    }
+  });
+
+  const fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+
+  term.open(document.getElementById("terminal"));
+  fitAddon.fit();
+
+  function connect() {
+
+    const protocol = location.protocol === "https:" ? "wss" : "ws";
+
+    const wsUrl = `${protocol}://${location.host}/ws?token=${token}`;
+
+    const ws = new WebSocket(wsUrl);
+
+    ws.binaryType = "arraybuffer";
+
+    ws.onopen = () => {
+
+      //term.writeln("Connected to server");
+
+      setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "ping" }));
+        }
+      }, 5000);
+
+      resize();
+
+    };
+
+    ws.onmessage = (event) => {
+
+      if (typeof event.data === "string") {
+
+        try {
+          const msg = JSON.parse(event.data);
+
+          if (msg.type === "pong") {
+            return;
+          }
+
+          if (msg.type === "exit") {
+            term.writeln("\r\nSession ended");
+            ws.close();
+          }
+
+        } catch(e) {}
+
+      } else {
+
+        term.write(new Uint8Array(event.data));
+
+      }
+
+    };
+
+    ws.onclose = () => {
+
+      term.writeln("\r\nConnection closed");
+
+    };
+
+    ws.onerror = () => {
+
+      term.writeln("\r\nConnection error");
+
+    };
+
+    term.onData(data => {
+
+      if(ws.readyState === WebSocket.OPEN){
+        ws.send(new TextEncoder().encode(data));
+      }
+
+    });
+
+    function resize(){
+
+      const cols = term.cols;
+      const rows = term.rows;
+
+      ws.send(JSON.stringify({
+        type:"resize",
+        cols:cols,
+        rows:rows
+      }));
+
+    }
+
+    window.addEventListener("resize", () => {
+
+      fitAddon.fit();
+      resize();
+
+    });
+
+  }
+
+  connect();
+
+</script>
+
+</body>
+</html>
