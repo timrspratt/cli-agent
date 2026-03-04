@@ -1,4 +1,4 @@
-module module github.com/timrspratt/cli-agent/v2
+module github.com/timrspratt/cli-agent/v2
 
 go 1.22.5
 
