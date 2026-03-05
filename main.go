@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,8 +43,9 @@ var activeSessions atomic.Int64 // number of active WS sessions
 
 type Claims struct {
 	jwt.RegisteredClaims
-	TenantID string `json:"tenant_id"`
-	ServerID string `json:"server_id"`
+	TenantID   string `json:"tenant_id"`
+	ServerID   string `json:"server_id"`
+	InitialDir string `json:"initial_dir,omitempty"`
 	// NOTE: we intentionally ignore any run_as claim for safety.
 	// RunAs string `json:"run_as,omitempty"`
 }
@@ -153,7 +155,7 @@ func lookupUser(username string) (*user.User, int, int, error) {
 
 // Spawn a login shell as a fixed, configured OS user.
 // This is where we enforce "can't root up" by ignoring any token-provided run_as.
-func spawnShell(fixedRunAs string) (*os.File, *exec.Cmd, error) {
+func spawnShell(fixedRunAs string, initialDir string) (*os.File, *exec.Cmd, error) {
 	// Use absolute path; avoids PATH surprises.
 	cmd := exec.Command("/usr/bin/bash", "-l")
 
@@ -196,6 +198,16 @@ func spawnShell(fixedRunAs string) (*os.File, *exec.Cmd, error) {
 		}
 		if cmd.Dir == "" {
 			cmd.Dir = "/root"
+		}
+	}
+
+	// Override working directory if the JWT specified one.
+	if initialDir != "" {
+		clean := filepath.Clean(initialDir)
+		if filepath.IsAbs(clean) {
+			if info, err := os.Stat(clean); err == nil && info.IsDir() {
+				cmd.Dir = clean
+			}
 		}
 	}
 
@@ -280,7 +292,7 @@ func wsHandler(pub *rsa.PublicKey, expectedAud string, leeway time.Duration, fix
 		}
 
 		// Spawn session
-		ptmx, cmd, err := spawnShell(fixedRunAs)
+		ptmx, cmd, err := spawnShell(fixedRunAs, claims.InitialDir)
 		if err != nil {
 			log.Printf("spawnShell failed: %v", err)
 			_ = wsWrite(websocket.TextMessage, []byte(`{"type":"exit","code":127}`))
@@ -446,6 +458,7 @@ func genJWT() {
 	serverID := flag.String("server", "", "server_id")
 	tenantID := flag.String("tenant", "", "tenant_id")
 	runAs := flag.String("runas", "", "run_as (optional)")
+	initialDir := flag.String("dir", "", "initial_dir (optional)")
 	aud := flag.String("aud", "deploycli-terminal", "audience")
 	ttl := flag.Int("ttl", 60, "token ttl seconds")
 
@@ -480,6 +493,9 @@ func genJWT() {
 
 	if *runAs != "" {
 		claims["run_as"] = *runAs
+	}
+	if *initialDir != "" {
+		claims["initial_dir"] = *initialDir
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
