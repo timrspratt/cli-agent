@@ -66,6 +66,8 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+var version string
+
 // ---------- Helpers ----------
 
 func loadRSAPublicKey(pemPath string) (*rsa.PublicKey, error) {
@@ -542,8 +544,16 @@ func main() {
 
 		// Static serving
 		staticPrefix = flag.String("static-prefix", "/", "URL prefix for static terminal UI (default /)")
+
+		// Version
+		versionFlag = flag.Bool("version", false, "Print the version and exit")
 	)
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("Version: %s\n", version)
+		os.Exit(0)
+	}
 
 	pub, err := loadRSAPublicKey(*jwtPubPEM)
 	if err != nil {
